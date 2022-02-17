@@ -1,21 +1,33 @@
 ---
-title: "P8106 HW1"
-author: Shihui Zhu sz3029
-output: github_document
----
+title: "P8106 HW1" 
+author: "Shihui Zhu"
+output:
+  pdf_document:
+    toc: yes
+    toc_depth: 2
+  html_document:
+    df_print: paged
+    toc: yes
+    toc_depth: '2'
+header-includes:
+- \usepackage{fancyhdr}
+- \usepackage{lipsum}
+- \pagestyle{fancy}
+- \fancyhead[R]{\thepage}
+- \fancypagestyle{plain}{\pagestyle{fancy}}
+--- 
 
 ```{r setup, include=FALSE}
-# Reproducibility
-set.seed(1)
-
 # This chunk loads all the packages used in this homework
 library(tidyverse)
-library(viridis)
-library(ggridges)
-library(patchwork)
+library(corrplot)
+library(glmnet)
+#library(RNHANES)
+library(leaps)
 
-# load the dataset library
-library(p8105.datasets)
+library(caret)
+#library(FNN) # knn.reg()
+#library(doBy) # which.minn()
 
 # General figure set up
 knitr::opts_chunk$set(
@@ -28,23 +40,67 @@ knitr::opts_chunk$set(
   fig.height = 8, 
   out.width = "95%"
 )
-
-# setting a global options for continuous data color family and a different format to set discrete data to have a color family
-options(
-  ggplot2.countinuous.colour = "viridis",
-  ggplot2.countinuous.fill = "viridis"
-)
-
-scale_colour_discrete = scale_colour_viridis_d
-scale_fill_discrete = scale_fill_viridis_d
-
-# have a minimal theme and legends at the bottom
-theme_set(theme_minimal() + theme(legend.position = "bottom"))
 ```
 
-# Problem 1
-```{r}
+# (a) Least Square
+
+Fit a linear model using least squares on the training data. Is there any potential disadvantage of this model?
+```{r input_train}
 house_training <- read_csv("housing_training.csv") %>%
   janitor::clean_names()
 ```
 
+## Perform 10-folds cross-validation on the full model
+
+There are 25 predictors in total, we want to perform CV to find the best fitted parameters. 
+
+```{r}
+# Reproducibility
+set.seed(1)
+fit.lm <- train(sale_price ~ ., 
+                data = house_training,
+                method = "lm",
+                trControl = trainControl(method = "cv", number = 10))
+# Print the coefficients of the final model
+fit.lm$finalModel$coefficients
+```
+
+## MSE, R-squared values
+
+Check the mean squared error (MSE) and the R-squared value of the model:
+```{r rmse}
+# The Mean Squared Error is
+mean(fit.lm$resample$RMSE)
+# The R^2 value is
+mean(fit.lm$resample$Rsquared)
+```
+
+Potential disadvantage:
+1. Overfit
+2. ?The true regression is never linear
+
+# (b) Lasso
+
+```{r}
+x_train <- model.matrix(sale_price ~ ., house_training)[ ,-1]
+y_train <- house_training$sale_price
+
+# Correlation plot
+corrplot(cor(x_train), method = "circle", type = "full")
+```
+
+## Fit the model using Lasso Regression
+
+```{r}
+# fit the laso regression (alpha = 1) with a sequence of lambdas
+cv.lasso <- cv.glmnet(x = x_train, y = y_train, 
+                    standardize = TRUE,
+                    alpha = 1, 
+                    lambda = exp(seq(8, -1, length = 100)))
+cv.lasso$lambda.min
+```
+
+
+```{r}
+plot(cv.lasso)
+```
