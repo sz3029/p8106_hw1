@@ -21,24 +21,19 @@ header-includes:
 # This chunk loads all the packages used in this homework
 library(tidyverse)
 library(corrplot)
-library(glmnet)
+library(glmnet) # for lasso and elastic net
 #library(RNHANES)
 library(leaps)
 library(plotmo)
 library(caret)
-#library(FNN) # knn.reg()
-#library(doBy) # which.minn()
+library(pls) # for pls
 
 # General figure set up
 knitr::opts_chunk$set(
   # display the code in github doc
   echo = TRUE,
   # hide warning messages
-  warning = FALSE,
-  # set the figure to be 8 x 6, and the proportion it takes to be 95%
-  fig.width = 8,
-  fig.height = 6, 
-  out.width = "95%"
+  warning = FALSE
 )
 ```
 
@@ -54,7 +49,7 @@ house_training <- read_csv("housing_training.csv") %>%
 
 There are 25 predictors in total, we want to perform CV to find the best fitted parameters. 
 
-```{r}
+```{r, warning=FALSE}
 # Reproducibility
 set.seed(1)
 fit.lm <- train(sale_price ~ ., 
@@ -62,7 +57,7 @@ fit.lm <- train(sale_price ~ .,
                 method = "lm",
                 trControl = trainControl(method = "cv", number = 10))
 # Print the coefficients of the final model
-fit.lm$finalModel$coefficients
+summary(fit.lm)
 ```
 
 ## MSE, R-squared values
@@ -75,20 +70,19 @@ mean((fit.lm$resample$RMSE)^2)
 mean(fit.lm$resample$Rsquared)
 ```
 
-So the training error for the LS model is 515636300, with R-squared value of 0.9029694.
+So the training error for the LS model is 531169999, with adjusted R-squared value of 0.9029694.
 
 Potential disadvantage:
-1. Overfit
-2. ?The true regression is never linear
+1. The model has the smallest variance among all the unbiased models, but it has larger variance compared to biased models, but it is not necessarily good enough. It may be better to have a biased estimator with smaller variance/mean squared error. 
+2. There are many predictors used in this model, and this can cause problem (large variance, colinearity among predictors, interpretation becomes hazardous).
+3. The model is too complex, a simple model might be better.
+4. This model has overfitting problem, meaning that it may perform badly on testing set. 
 
 # (b) Lasso
 
 ```{r corr}
 x_train <- model.matrix(sale_price ~ ., house_training)[ ,-1]
 y_train <- house_training$sale_price
-
-# Correlation plot
-corrplot(cor(x_train), method = "circle", type = "full")
 ```
 
 ## Fit the model using Lasso Regression
@@ -110,15 +104,17 @@ abline(h = (cv.lasso$cvm + cv.lasso$cvsd)[which.min(cv.lasso$cvm)], col = 4, lwd
 
 When 1se rule is applied, there are total 30 predictors in the model. 
 
+The coefficient of LASSO regression model is:
+
 ```{r coeff}
 predict(cv.lasso, s = cv.lasso$lambda.1se, type = "coefficient")
 ```
 
-## Test Error
+## Training and Testing Error
 
 Calculate the MSE of the test set
 
-```{r test_lasso}
+```{r test_lasso, message=FALSE}
 housing_testing <- read_csv("housing_test.csv") %>%
   janitor::clean_names()
 x_test <- model.matrix(sale_price ~ ., housing_testing)[ ,-1]
@@ -133,7 +129,8 @@ The training error (MSE) is 515636300 for lasso model.
 
 ```{r}
 y_pred <- predict(cv.lasso, newx = x_test, s = "lambda.1se", type = "response")
-mean(RMSE(y_pred, y_test)^2)
+lasso_te <- mean(RMSE(y_pred, y_test)^2)
+lasso_te
 ```
 
 The test error (MSE) is 420354616 for lasso regression model when the 1SE rule is applied.
@@ -168,24 +165,55 @@ The tunning parameter $\lambda$ is 619.2886. The parameter $\alpha$ is 0.05.
 ```{r}
 enet.pred <- predict(enet.fit, newdata = x_test)
 # test error
-mean(RMSE(enet.pred, y_test)^2)
+enet_te <- mean(RMSE(enet.pred, y_test)^2)
+enet_te
 ```
+
+The test error (MSE) is 438209306 for elastic net model.
 
 # (d) Fit a partial least squares model 
 
-```{r}
-
-```
-
-
-
+## Fit model using plsr
 ```{r}
 set.seed(2)
+pls.mod <- plsr(sale_price~., 
+                data = house_training, 
+                scale = TRUE,  
+                validation = "CV")
 
-resamp <- resamples(list(enet = enet.fit, lasso = lasso.fit, ridge = ridge.fit, lm = lm.fit))
-summary(resamp)
-
-parallelplot(resamp, metric = "RMSE")
-# bwplot(resamp, metric = "RMSE")
+summary(pls.mod)
+validationplot(pls.mod, val.type="MSEP", legendpos = "topright")
 ```
+## Training Error and Testing Error
+```{r}
+# training error
+cv.mse <- RMSEP(pls.mod)
+mean(min(cv.mse$val[1,,])^2)
+
+ncomp.cv <- which.min(cv.mse$val[1,,])-1 # extract the response and delete the 0th component
+# num of components
+ncomp.cv
+
+# Prediction
+pls_pred <- predict(pls.mod, newdata = x_test, 
+                      ncomp = ncomp.cv)
+# test MSE
+pls_te <- mean(RMSE(y_test, pls_pred)^2)
+pls_te
+```
+
+The model with 8 components yields the minimum training error (MSE) 529300397. The testing error (MSE) is 440217938.
+
+# e) Select Model
+
+```{r}
+#compute the testing error of LS regression first
+y_pred <- predict(fit.lm, newdata = housing_testing)
+ls_te <- mean(RMSE(y_pred, y_test)^2)
+ls_te
+```
+
+The test error of LS model is 447287652. 
+
+For response predicting, we want to choose the model with the smallest test error. The test error (MSE) is 420354616 for lasso regression model, 438209306 for elastic net model, and 440217938 for the PLS model. Therefore, we should choose the lasso regression model for predicting the response. 
 
