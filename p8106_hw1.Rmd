@@ -104,7 +104,7 @@ abline(h = (cv.lasso$cvm + cv.lasso$cvsd)[which.min(cv.lasso$cvm)], col = 4, lwd
 
 When 1se rule is applied, there are total 30 predictors in the model. 
 
-The coefficient of LASSO regression model is:
+The coefficient of LASSO regression model with 1SE rule applied is:
 
 ```{r coeff}
 predict(cv.lasso, s = cv.lasso$lambda.1se, type = "coefficient")
